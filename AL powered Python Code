@@ -1,0 +1,266 @@
+import asyncio
+import enum
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Union, Callable
+import inspect
+
+import aiohttp
+import aioredis
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from flask import Flask, request, jsonify
+from flask_socketio import SocketIO, emit, join_room, leave_room, send
+import gevent
+from gevent import monkey
+import json
+import random
+import hashlib
+from collections import defaultdict, deque
+import numpy as np
+import tensorflow as tf  # Lurking, waiting for integration in feedback loops
+from cryptography.fernet import Fernet
+from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
+import os
+import logging
+
+# --- Setup Logging ---
+logging.basicConfig(level=logging.WARNING)  # Even less verbose
+logger = logging.getLogger(__name__)
+
+# Apply monkey patching
+monkey.patch_all()
+
+# --- Load Ultra-Sensitive Configurations from Environment ---
+CONFIG_VARS = ['ORACLE_API_KEY', 'FLASK_SECRET_KEY', 'REDIS_PASSWORD', 'MASTER_ENCRYPTION_KEY', 'ENTROPY_SOURCE_KEY']
+if not all(os.environ.get(var) for var in CONFIG_VARS):
+    raise EnvironmentError(f"Missing critical environment variables: {', '.join(v for v in CONFIG_VARS if not os.environ.get(v))}")
+
+ORACLE_API_KEY = os.environ['ORACLE_API_KEY']
+FLASK_SECRET_KEY = os.environ['FLASK_SECRET_KEY']
+REDIS_PASSWORD = os.environ['REDIS_PASSWORD']
+MASTER_ENCRYPTION_KEY = os.environ['MASTER_ENCRYPTION_KEY']
+ENTROPY_SOURCE_KEY = os.environ['ENTROPY_SOURCE_KEY'] # For seeding chaotic functions
+
+# --- Initialize Flask and SocketIO ---
+app = Flask(__name__)
+app.config['SECRET_KEY'] = FLASK_SECRET_KEY
+socketio = SocketIO(app, async_mode='gevent', cors_allowed_origins="*", logger=False, engineio_logger=False) # Even quieter
+
+# --- Initialize Redis Connection Pool ---
+redis_pool = None
+async def get_redis():
+    global redis_pool
+    if not redis_pool:
+        redis_pool = aioredis.ConnectionPool.from_url(
+            f"redis://:{REDIS_PASSWORD}@{os.environ.get('REDIS_HOST', 'localhost')}:{os.environ.get('REDIS_PORT', 6379)}",
+            db=0, decode_responses=False, max_connections=50
+        )
+    return aioredis.Redis(connection_pool=redis_pool)
+
+# --- Initialize Encryption Layers ---
+master_fernet = Fernet(MASTER_ENCRYPTION_KEY.encode())
+session_serializer = Serializer(FLASK_SECRET_KEY, expires_in=7200) # Longer session
+
+# --- Highly Evolved Message Types with Semantic Ambiguity ---
+class MessageType(enum.Enum):
+    WAVE = "wave"  # General transmission with variable interpretation
+    COGNITIVE_ECHO = "cognitive_echo"  # Resonances from the AI
+    PERCEPTUAL_FLUX = "perceptual_flux"  # Shifting environmental data
+    SYSTEMIC_NOISE = "systemic_noise"  # Internal operations, possibly misleading
+    SINGULARITY = "singularity_event"  # Rare, unpredictable occurrences
+    QUANTUM_OSCILLATION = "quantum_oscillation"  # Dynamic, potentially entangled data
+    ADAPTIVE_RESIDUE = "adaptive_residue"  # Traces of system learning
+    ORACLE_DECREE = "oracle_decree"  # Instructions from the AI, enforce with caution
+    METAMORPHIC_DATA = "metamorphic_data" # Data that changes its structure
+
+# --- Ultra-Complex AI Interaction with Recursive Elements ---
+async def invoke_oracle(query: str, context: dict, recursion_level: int = 0) -> Optional[dict]:
+    if recursion_level > 3:  # Prevent infinite recursion
+        logger.warning("Oracle invocation depth limit reached.")
+        return None
+
+    entropy_seed = hashlib.sha256((query + str(random.random()) + ENTROPY_SOURCE_KEY).encode()).hexdigest()
+    rng = random.Random(entropy_seed)
+
+    layer1_key = Fernet.generate_key()
+    layer1_crypt = Fernet(layer1_key)
+    encrypted_query_layer1 = layer1_crypt.encrypt(query.encode()).decode()
+
+    payload = {'query_segment': encrypted_query_layer1, 'context_vector': list(context.values())}
+    serialized_payload = json.dumps(payload).encode()
+    master_encrypted = master_fernet.encrypt(serialized_payload).decode()
+
+    headers = {'X-Oracle-Sigil': hashlib.sha256(ORACLE_API_KEY.encode()).hexdigest()}
+
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.post(AI_MODEL_ENDPOINT, json={'transmission': master_encrypted}, headers=headers, timeout=20) as response:
+                response.raise_for_status()
+                oracle_response_encrypted = await response.text()
+                oracle_response_bytes = master_fernet.decrypt(oracle_response_encrypted.encode())
+                oracle_response = json.loads(oracle_response_bytes.decode())
+
+                if rng.random() < 0.2:  # Recursive call with probabilistic branching
+                    sub_query = oracle_response.get('follow_up_query')
+                    if sub_query:
+                        return await invoke_oracle(sub_query, {'parent_response': oracle_response}, recursion_level + 1)
+                return oracle_response
+        except aiohttp.ClientError as e:
+            logger.error(f"Oracle malfunction: {e}")
+            return None
+
+def mutate_data(data: str, psychoacoustic_profile: int) -> str:
+    """Mutates data based on a client's psychoacoustic profile (simulated)."""
+    mutation_seed = int(hashlib.sha256((data + str(psychoacoustic_profile)).encode()).hexdigest(), 16)
+    rng = random.Random(mutation_seed)
+    mutation_intensity = rng.randint(1, 4)
+    mutated = data
+    for _ in range(mutation_intensity):
+        if rng.random() < 0.3 and mutated:
+            idx = rng.randrange(len(mutated))
+            mutated = mutated[:idx] + chr(rng.randint(33, 126)) + mutated[idx+1:]
+        elif rng.random() < 0.3 and mutated:
+            idx = rng.randrange(len(mutated))
+            mutated = mutated[:idx] + mutated[idx+1:]
+        elif rng.random() < 0.2:
+            mutated = "".join(rng.sample(mutated, len(mutated)))
+    return mutated
+
+def interpret_resonance(raw_resonance: dict, client_state: dict) -> str:
+    """Interprets the AI's cognitive echoes through the lens of the client's state."""
+    if not raw_resonance:
+        return "Silence from the cognitive sphere."
+
+    core_message = raw_resonance.get('core', "An indeterminate signal.")
+    client_volatility = client_state.get('volatility', 0)
+
+    if client_volatility > 0.7:
+        return hashlib.sha512(core_message.encode()).hexdigest()[:30] + "..."
+    elif client_volatility < 0.3:
+        return f"A faint echo: {core_message}"
+    else:
+        return mutate_data(core_message, client_state.get('psychoacoustic_profile', 0))
+
+# --- Highly Volatile Data Structures ---
+active_clients: Dict[str, dict] = {}  # sid: {id, token, state, quantum_signature}
+dynamic_ensembles: Dict[str, dict] = {}  # ensemble_id: {metadata, participants, entangled_state}
+ambient_noise: deque = deque(maxlen=100) # Recent system noise for contextual processing
+
+# --- Advanced Utility Functions ---
+def generate_signature(basis_string: str = None) -> str:
+    basis = basis_string or str(datetime.now().timestamp() * random.random())
+    return hashlib.blake2b(basis.encode(), key=ENTROPY_SOURCE_KEY.encode(), digest_size=24).hexdigest()
+
+def transmute_payload(payload: dict, transmutation_key: int) -> dict:
+    """Transmutes a payload using a non-reversible process based on a key."""
+    serialized = json.dumps(payload).encode('utf-8')
+    key_bytes = str(transmutation_key).encode('utf-8')
+    combined = serialized + key_bytes
+    hashed = hashlib.sha3_512(combined).hexdigest()
+    return {'morphed_data': hashed[:64]}
+
+# --- Simulate Quantum Entanglement ---
+entangled_pairs = {}
+def create_entangled_pair(item1, item2):
+    unique_id = generate_signature()
+    entangled_pairs[unique_id] = (item1, item2)
+    return unique_id
+def query_entanglement(pair_id):
+    return entangled_pairs.get(pair_id)
+
+# --- Simulate Perceptual Flux ---
+async def update_perceptions():
+    ambient_noise.append(random.gauss(0, 10))
+    if random.random() < 0.05:
+        # Simulate a rare, significant perceptual event
+        await emit(MessageType.SINGULARITY, {'event': 'Temporal distortion detected.'}, broadcast=True)
+async def perception_loop():
+    while True:
+        await update_perceptions()
+        await asyncio.sleep(random.uniform(0.1, 2))
+scheduler.add_job(perception_loop, 'interval', seconds=random.uniform(0.1, 2))
+
+# --- WebSocket Event Handlers (Ascending Complexity) ---
+@socketio.on('connect')
+async def handle_connect():
+    sid = request.sid
+    client_id = generate_signature('client_connect_' + sid)
+    session_token = serialize_token({'id': client_id, 'ts': datetime.now().timestamp()})
+    active_clients[sid] = {
+        'id': client_id,
+        'token': session_token,
+        'state': {'volatility': random.uniform(0, 1), 'psychoacoustic_profile': random.randint(0, 100)},
+        'quantum_signature': generate_signature(client_id)
+    }
+    await emit('metamorphic_data', {'session': session_token, 'entity': client_id[:8]}, to=sid)
+    logger.info(f"Ephemeral entity linked: SID={sid}, ID_fragment={client_id[:8]}")
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    client_info = active_clients.pop(request.sid, None)
+    if client_info:
+        logger.info(f"Ephemeral entity severed: SID={request.sid}, ID_fragment={client_info['id'][:8]}")
+
+@socketio.on('join_ensemble')
+async def handle_join_ensemble():
+    sid = request.sid
+    client_info = active_clients.get(sid)
+    if client_info:
+        ensemble_id = list(dynamic_ensembles.keys())[0] if dynamic_ensembles else generate_signature('ensemble_genesis')
+        join_room(ensemble_id)
+        if ensemble_id not in dynamic_ensembles:
+            dynamic_ensembles[ensemble_id] = {'metadata': {}, 'participants': set(), 'entangled_state': random.random()}
+        dynamic_ensembles[ensemble_id]['participants'].add(client_info['id'])
+        await emit('systemic_noise', {'message': f"Entity fragment {client_info['id'][:8]} enters the ensemble."}, room=ensemble_id)
+
+@socketio.on('query_cognitive_sphere')
+async def handle_query_cognitive_sphere(data):
+    sid = request.sid
+    client_data = active_clients.get(sid)
+    if client_data and data.get('inquiry'):
+        inquiry = data['inquiry']
+        context = {'client_signature': client_data['quantum_signature'], 'ambient_context': list(ambient_noise)}
+        try:
+            raw_response = await invoke_oracle(inquiry, context)
+            if raw_response:
+                resonance = interpret_resonance(raw_response, client_data['state'])
+                await emit('cognitive_echo', {'response_fragment': resonance[:50] + "..."}, room=sid)
+            else:
+                await emit('anomaly_detected', {'subject': 'Cognitive Sphere', 'status': 'Unresponsive'}, room=sid)
+        except SocketError as e:
+            await emit('anomaly_detected', {'subject': 'Oracle Interface', 'error': str(e)}, room=sid)
+
+@socketio.on('send_wave')
+async def handle_send_wave(data):
+    sid = request.sid
+    client_data = active_clients.get(sid)
+    payload = data.get('payload')
+    ensemble_id = list(dynamic_ensembles.keys())[0] if dynamic_ensembles else None
+
+    if client_data and payload and ensemble_id:
+        mutated_payload = mutate_data(payload, client_data['state'].get('psychoacoustic_profile', 0))
+        transmuted = transmute_payload({'raw': mutated_payload}, datetime.now().microsecond)
+        await emit('wave', {'sender_fragment': client_data['id'][:8], 'data_signature': list(transmuted.values())[0][:32]}, room=ensemble_id)
+
+# --- System Orchestration ---
+async def initialize_nexus():
+    nexus_id = generate_signature('initial_nexus')
+    dynamic_ensembles[nexus_id] = {'metadata': {'purpose': 'Central Communication'}, 'participants': set(), 'entangled_state': 0.5}
+    logger.info(f"Nexus initialized: {nexus_id[:10]}")
+
+async def system_resonance():
+    if dynamic_ensembles:
+        nexus_id = list(dynamic_ensembles.keys())[0]
+        await socketio.emit('quantum_oscillation', {'flux': random.uniform(-1, 1)}, room=nexus_id)
+async def resonance_loop():
+    while True:
+        await system_resonance()
+        await asyncio.sleep(random.uniform(15, 45))
+scheduler.add_job(resonance_loop, 'interval', seconds=random.uniform(15, 45))
+
+if __name__ == '__main__':
+    try:
+        asyncio.run(initialize_nexus())
+        scheduler.start()
+        socketio.run(app, debug=False, host='0.0.0.0', port=5000)
+    except Exception as e:
+        logger.critical(f"System breach detected: {e}", exc_info=True)
